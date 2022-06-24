@@ -7,8 +7,44 @@ import sys
 import torch.nn as nn
 import torch.nn.functional as F
 import pandas as pd
-import os
-from imblearn.over_sampling import SMOTE
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, num_classes=2, size_average=True):
+        super(FocalLoss,self).__init__()
+        self.size_average = size_average
+        if isinstance(alpha, list):
+            assert len(alpha) == num_classes
+            self.alpha = torch.Tensor(alpha)
+        else:
+            assert alpha < 1
+            self.alpha = torch.zeros(num_classes)
+            self.alpha[0] += alpha
+            self.alpha[1:] += (1 - alpha)
+            print("alpha", self.alpha)
+
+        self.gamma = gamma
+
+    def forward(self, preds, labels):
+        # assert preds.dim()==2 and labels.dim()==1
+        preds = preds.view(-1,preds.size(-1))
+        self.alpha = self.alpha.to(preds.device)
+        preds_softmax = F.softmax(preds, dim=1)
+        preds_logsoft = torch.log_softmax(preds, dim=1)
+        # focal_loss func, Loss = -α(1-yi)**γ *ce_loss(xi,yi)
+        preds_softmax = preds_softmax.gather(1, labels.view(-1, 1))
+        preds_logsoft = preds_logsoft.gather(1, labels.view(-1, 1))
+
+        alpha = self.alpha.gather(0, labels)
+        loss = -torch.mul(torch.pow((1 - preds_softmax), self.gamma), preds_logsoft)
+
+        loss = torch.mul(alpha, loss.t())
+        if self.size_average:
+            loss = loss.mean()
+        else:
+            loss = loss.sum()
+        return loss
+
 
 def GetCsvD( names, data ):
     datalen = len(names)
