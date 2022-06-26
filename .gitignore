@@ -1,0 +1,6 @@
+vis/
+__pycache__/
+*.out
+*.zip
+
+
