@@ -7,7 +7,25 @@ import sys
 import torch.nn as nn
 import torch.nn.functional as F
 import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn import metrics
 
+def draw_roc(save_path, gt, pred, title="Val"):
+    fpr, tpr, threshold = metrics.roc_curve(gt, pred)
+    roc_auc = metrics.auc(fpr, tpr)
+    plt.figure(figsize=(6, 6))
+    plt.title(title+' ROC')
+    plt.plot(fpr, tpr, 'b', label=title+' AUC = %0.3f' % roc_auc)
+    plt.legend(loc='lower right')
+    plt.plot([0, 1], [0, 1], 'r--')
+    plt.xlim([0, 1])
+    plt.ylim([0, 1])
+    plt.ylabel('True Positive Rate')
+    plt.xlabel('False Positive Rate')
+    plt.savefig(save_path)
+    # plt.show()
+    print("roc: %.3f"%roc_auc)
+    return roc_auc
 
 class FocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2, num_classes=2, size_average=True):

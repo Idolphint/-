@@ -3,6 +3,7 @@ import torch.nn as nn
 
 # 贝叶斯， svm
 
+
 class TaxReturnLSTM(nn.Module):
     def __init__(self):
         super(TaxReturnLSTM, self).__init__()
@@ -55,6 +56,7 @@ class TaxPayModel(nn.Module):
         y = self.fc3(x)
         return y, x
 
+
 class EmbeddingClassify(nn.Module):
     def __init__(self):
         super(EmbeddingClassify, self).__init__()
@@ -88,5 +90,43 @@ class EmbeddingClassify(nn.Module):
         x = torch.cat([re_out, tax_pay, hy, inv], dim=-1)
         x = self.relu(self.fc_out1(x))
         x = self.fc_out2(x)
+        return x
+
+
+class FCModel(nn.Module):
+    def __init__(self):
+        super(FCModel, self).__init__()
+        self.fc1 = nn.Linear(52, 32)
+        self.fc2 = nn.Linear(21, 16)
+        self.fc7 = nn.Linear(6, 2)
+        # self.fc8 = nn.Linear(8,8)
+        self.fc3 = nn.Linear(32, 32)
+        self.fc6 = nn.Linear(16,16)
+        # self.fc4 = nn.Linear(64, 2)
+        self.fc5 = nn.Linear(50,2)
+
+        self.bn1 = nn.BatchNorm1d(32)
+        self.bn2 = nn.BatchNorm1d(16)
+        self.bn3 = nn.BatchNorm1d(2)
+        self.drop = nn.Dropout(p=0.1)
+        # self.bn3 = nn.BatchNorm1d(8)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, data):
+        # x = self.relu(self.fc1(data))
+        x1 = self.drop(self.relu(self.fc1(data[:,:52])))
+        x1 = self.relu(self.bn1(self.fc3(x1)))
+        x2 = self.drop(self.relu(self.fc2(data[:,52:-6])))
+        x2 = self.sigmoid(self.fc6(x2))
+        x3 = self.relu(self.bn3(self.fc7(data[:, -6:])))
+        # x3 = self.relu(self.fc8(x3))
+        x = torch.cat([x1,x2,x3], dim=1)
+        # x = self.relu(self.fc3(x))
+        # x = self.relu(self.fc6(x))
+        x = self.fc5(x)
+        # x = self.relu(self.fc5(x))
+
         return x
 

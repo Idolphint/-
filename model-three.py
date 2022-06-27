@@ -1,26 +1,23 @@
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
-from sklearn import metrics
-from data import Company
-from functions import FocalLoss
-from sklearn.svm import SVC
+from data import Company, SVMDataSet
+from torch.utils.data import Dataset, DataLoader
+from functions import FocalLoss, draw_roc
 import pandas as pd
 import pickle
-from model import EmbeddingClassify, TaxPayModel, TaxReturnLSTM
+from svm import compress_data
+from model import EmbeddingClassify, TaxPayModel, TaxReturnLSTM, FCModel
 import torch.nn as nn
 import torch.nn.functional as F
 
 test = False
-train_f = open("../data_jk/train_data.pkl", 'rb')
-eval_f = open("../data_jk/eval_data.pkl", 'rb')
-test_f = open("../data_jk/test.pkl", 'rb')
-train_data = pickle.load(eval_f)
-eval_data = pickle.load(train_f)
-test_data = pickle.load(test_f)
+train_f = "../data_jk/eval_data.pkl"
+eval_f = "../data_jk/train_data.pkl"
+test_f = "../data_jk/test.pkl"
+
 lr=0.001
-EPOCH = 10
-batch_size = 16
+EPOCH = 50
+batch_size = 32
 seq_len = 16
 model1 = EmbeddingClassify()
 model2 = TaxReturnLSTM()
@@ -32,22 +29,11 @@ optimizer1 = torch.optim.Adam(model1.parameters(), lr=lr, weight_decay=0.99)
 optimizer2 = torch.optim.Adam(model2.parameters(), lr=lr, weight_decay=0.99)
 optimizer3 = torch.optim.Adam(model3.parameters(), lr=lr, weight_decay=0.99)
 
-def draw_roc(save_path, gt, pred, title="Val"):
-    fpr, tpr, threshold = metrics.roc_curve(gt, pred)
-    roc_auc = metrics.auc(fpr, tpr)
-    plt.figure(figsize=(6, 6))
-    plt.title(title+' ROC')
-    plt.plot(fpr, tpr, 'b', label=title+' AUC = %0.3f' % roc_auc)
-    plt.legend(loc='lower right')
-    plt.plot([0, 1], [0, 1], 'r--')
-    plt.xlim([0, 1])
-    plt.ylim([0, 1])
-    plt.ylabel('True Positive Rate')
-    plt.xlabel('False Positive Rate')
-    plt.savefig(save_path)
-    plt.show()
 
 def model_train():
+    train_data = pickle.load(open(train_f, 'rb'))
+    eval_data = pickle.load(open(eval_f, 'rb'))
+    test_data = pickle.load(open(test_f, 'rb'))
     i=0
     for e in range(EPOCH):
         model1.train()
@@ -127,75 +113,56 @@ def model_train():
             df.to_csv('test_res_ep%d.csv'%e)
 
 
-def svm_data_pre(tax_re, tax_pay):
-    m, c = tax_re.shape
-    r_m = 52
-    r_year=15
-    new_tax_re = [0]*r_m
-    j=r_year
-    new_tax_re[0:min(r_year, m)] = tax_re[0:min(r_year,m), 0]
-    for ci in range(1,c):
-        for mi in range(m):
-            if(tax_re[mi,ci]!=0):
-                new_tax_re[j] = tax_re[mi,ci]
-                j+=1
-                if j >=r_m:
-                    break
-        if j >= r_m:
-            break
-    # 处理交税
-    p_m = 7
-    new_tax_pay = [0]*p_m*3
-    j = 0
-    for it, info in tax_pay.items():
-        for info_m in info:
-            new_tax_pay[j*3:(j+1)*3] = info_m
-            j += 1
-            if j >= p_m:
-                break
-        if j >= p_m:
-            break
-    return new_tax_re, new_tax_pay
+def fc_model_train():
+    train_loader = DataLoader(SVMDataSet(train_f), batch_size=batch_size, shuffle=True)
+    eval_loader = DataLoader(SVMDataSet(eval_f), batch_size=batch_size, shuffle=True)
 
-def compress_data(in_data, get_label=False):
-    svm_train_x = []
-    if get_label:
-        svm_train_y = []
-    for id, comp in in_data.items():
-        hy_dm = comp.HY_DM  # 6位行业编码
-        inv = comp.get_four_investor().reshape(-1)  # 8位投资信息
-        tax_re = comp.get_tax_return()  # month * 商品种类， 选取2个商品种类，12个月的数据
-        tax_pay = comp.get_tax_pay()  # 商品种类： 各个月份， 选取2个商品种类，2个月的数据？
-        tax_re, tax_pay = svm_data_pre(tax_re, tax_pay)
-        new_info = []
-        # new_info.extend(hy_dm)
-        # new_info.extend(inv)
-        new_info.extend(tax_re)
-        new_info.extend(tax_pay)
-        svm_train_x.append(new_info)
-        if get_label:
-            label = comp.label
-            svm_train_y.append(label)
-    if get_label:
-        return np.array(svm_train_x), np.array(svm_train_y)
-    else:
-        return np.array(svm_train_x)
-
-def svm_train():
-    svm_train_x, svm_train_y = compress_data(train_data, get_label=True)
-    svm_eval_x, svm_eval_y = compress_data(eval_data, get_label=True)
-    clf = SVC(probability=True)
-    clf.fit(svm_train_x, svm_train_y)
-    pred = clf.predict( svm_eval_x )
-    eval_acc = ( np.sum( pred == svm_eval_y ) / len(svm_eval_y))
-    pred = clf.predict( svm_train_x )
-    train_acc = ( np.sum( pred == svm_train_y ) / len(svm_train_y))
-    print("eval_acc: %.3f, train acc: %.3f"%(eval_acc, train_acc))
-    predp = clf.predict_proba( svm_eval_x )
-    draw_roc("./vis/svm_eval.jpg", svm_eval_y, predp[:,1], "eval")
-    predp = clf.predict_proba(svm_train_x)
-    draw_roc("./vis/svm_train.jpg", svm_train_y, predp[:, 1], "train")
-
+    model = FCModel().cuda()
+    criterion = nn.CrossEntropyLoss().cuda()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=0.99)
+    best_auc = 0
+    for e in range(EPOCH):
+        train_acc = 0.0
+        train_num = 0
+        pred_p_list = []
+        gt_list = []
+        for batch, label in train_loader:
+            data = torch.FloatTensor(batch).cuda()
+            label = torch.LongTensor(label).cuda()
+            pred = model(data)
+            loss = criterion(pred, label)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            pred_p = F.softmax(pred, dim=-1)[:,1]
+            label = label.detach().cpu().numpy()
+            gt_list.extend(list(label))
+            pred_p_list.extend(list(pred_p.detach().cpu().numpy()))
+            train_acc += np.sum(torch.argmax(pred, dim=-1).detach().cpu().numpy() == label)
+            train_num += pred.shape[0]
+        print("epoch %d, train acc:%.3f"%(e, train_acc/train_num))
+        draw_roc("./vis/fc_model_train%d.jpg"%e, gt_list, pred_p_list, title="train")
+        eval_acc = 0.0
+        eval_num = 0
+        pred_p_list = []
+        gt_list = []
+        for batch, label in eval_loader:
+            data = torch.FloatTensor(batch).cuda()
+            label = torch.LongTensor(label).cuda()
+            pred = model(data)
+            pred_p = F.softmax(pred, dim=-1)[:, 1]
+            label = label.detach().cpu().numpy()
+            gt_list.extend(list(label))
+            pred_p_list.extend(list(pred_p.detach().cpu().numpy()))
+            eval_acc += np.sum(torch.argmax(pred, dim=-1).detach().cpu().numpy() == label)
+            eval_num += pred.shape[0]
+        print("epoch %d, eval acc: %.3f"%(e, eval_acc/eval_num))
+        auc = draw_roc("./vis/fc_model_eval%d.jpg"%e, gt_list, pred_p_list, title="eval")
+        if auc > best_auc:
+            torch.save(model.state_dict(), "./ckpt/fc_model_best.pth")
+            print("saving best fc model")
+            best_auc = auc
+    print("the best auc = %.3f"%best_auc)
 
 if __name__ == '__main__':
-    svm_train()
+    fc_model_train()

@@ -3,7 +3,7 @@ import pickle
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import torch
-
+from svm import svm_data_pre
 code_regi_redict = {}
 hy_dm_redict = {}
 
@@ -204,6 +204,39 @@ def init_dataset(mode="train", eval_rate=0.9):
         pickle.dump(dataset, open("../data_jk/%s.pkl" % mode, 'wb'))
 
     return dataset
+
+
+class SVMDataSet(Dataset):
+    def __init__(self, data_dir):
+        data_f = open(data_dir, 'rb')
+        in_data = pickle.load(data_f)
+        self.svm_train_x = []
+        self.svm_train_y = []
+        for id, comp in in_data.items():
+            hy_dm = comp.HY_DM  # 6位行业编码
+            inv = comp.get_four_investor().reshape(-1)  # 8位投资信息
+            tax_re = comp.get_tax_return()  # month * 商品种类， 选取2个商品种类，12个月的数据
+            tax_pay = comp.get_tax_pay()  # 商品种类： 各个月份， 选取2个商品种类，2个月的数据？
+            tax_re, tax_pay = svm_data_pre(tax_re, tax_pay)
+            new_info = []
+            new_info.extend(tax_re)
+            new_info.extend(tax_pay)
+            new_info.extend(hy_dm)
+            # new_info.extend(inv)
+            # assert len(new_info) == 87
+            self.svm_train_x.append(new_info)
+            label = comp.label
+            self.svm_train_y.append(label)
+        self.svm_train_x = np.array(self.svm_train_x, dtype=np.float32)
+        self.svm_train_y = np.array(self.svm_train_y, dtype=np.int64)
+
+    def __getitem__(self, item):
+        x = self.svm_train_x[item]
+        y = self.svm_train_y[item]
+        return x,y
+
+    def __len__(self):
+        return len(self.svm_train_x)
 
 
 if __name__ == '__main__':
