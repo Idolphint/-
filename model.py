@@ -93,17 +93,19 @@ class EmbeddingClassify(nn.Module):
         return x
 
 
-class FCModel(nn.Module):
+class FCModel1(nn.Module):
+    # ckpt 0.743
+    # ckpt 668_fill0
     def __init__(self):
-        super(FCModel, self).__init__()
+        super(FCModel1, self).__init__()
         self.fc1 = nn.Linear(52, 32)
-        self.fc2 = nn.Linear(21, 16)
+        self.fc2 = nn.Linear(54, 16)
         self.fc7 = nn.Linear(6, 2)
         # self.fc8 = nn.Linear(8,8)
         self.fc3 = nn.Linear(32, 32)
-        self.fc6 = nn.Linear(16,16)
+        self.fc6 = nn.Linear(16, 16)
         # self.fc4 = nn.Linear(64, 2)
-        self.fc5 = nn.Linear(50,2)
+        self.fc5 = nn.Linear(50, 2)
 
         self.bn1 = nn.BatchNorm1d(32)
         self.bn2 = nn.BatchNorm1d(16)
@@ -122,7 +124,7 @@ class FCModel(nn.Module):
         x2 = self.sigmoid(self.fc6(x2))
         x3 = self.relu(self.bn3(self.fc7(data[:, -6:])))
         # x3 = self.relu(self.fc8(x3))
-        x = torch.cat([x1,x2,x3], dim=1)
+        x = torch.cat([x1, x2, x3], dim=1)
         # x = self.relu(self.fc3(x))
         # x = self.relu(self.fc6(x))
         x = self.fc5(x)
@@ -130,3 +132,63 @@ class FCModel(nn.Module):
 
         return x
 
+
+class FCModel2(nn.Module):
+    # ckpt 0.682_fill0
+    def __init__(self):
+        super(FCModel2, self).__init__()
+        self.fc1 = nn.Linear(52, 32)
+        self.fc2 = nn.Linear(54, 32)
+        self.fc7 = nn.Linear(6, 2)
+        # self.fc8 = nn.Linear(8,8)
+        self.fc3 = nn.Linear(32, 16)
+        self.fc6 = nn.Linear(32,16)
+        # self.fc4 = nn.Linear(64, 2)
+        self.fc8 = nn.Linear(34,16)
+        self.fc5 = nn.Linear(16,2)
+
+        self.bn1 = nn.BatchNorm1d(16)
+        self.bn2 = nn.BatchNorm1d(16)
+        self.bn3 = nn.BatchNorm1d(2)
+        self.drop = nn.Dropout(p=0.1)
+        self.bn4 = nn.BatchNorm1d(16)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, data):
+        # x = self.relu(self.fc1(data))
+        x1 = self.drop(self.relu(self.fc1(data[:,:52])))
+        x1 = self.relu(self.bn1(self.fc3(x1)))
+        x2 = self.drop(self.relu(self.fc2(data[:,52:-6])))
+        x2 = self.sigmoid(self.fc6(x2))
+        x3 = self.relu(self.bn3(self.fc7(data[:, -6:])))
+        # x3 = self.relu(self.fc8(x3))
+        x = torch.cat([x1,x2,x3], dim=1)
+        # x = self.relu(self.fc3(x))
+        x = self.drop(self.relu(self.bn4(self.fc8(x))))
+        x = self.fc5(x)
+        # x = self.relu(self.fc5(x))
+
+        return x
+
+    def load(self, ckpt):
+        self.load_state_dict(torch.load(ckpt[0]))
+
+
+class MixFCModel(nn.Module):
+    # 初步验证mix可以涨点
+    def __init__(self):
+        super(MixFCModel, self).__init__()
+        self.model1 = FCModel1()
+        self.model2 = FCModel2()
+
+    def forward(self, data):
+        pred1 = self.model1(data)
+        pred2 = self.model2(data)
+        res = (pred1+pred2)/2
+        return res
+
+    def load(self, ckpt):
+        self.model1.load_state_dict(torch.load(ckpt[0]))
+        self.model2.load_state_dict(torch.load(ckpt[1]))

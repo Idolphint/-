@@ -2,5 +2,7 @@ vis/
 __pycache__/
 *.out
 *.zip
+*.csv
+.pytest_cache/
 
 

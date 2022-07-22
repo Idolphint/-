@@ -5,18 +5,18 @@ from torch.utils.data import Dataset, DataLoader
 from functions import FocalLoss, draw_roc
 import pandas as pd
 import pickle
-from svm import compress_data
-from model import EmbeddingClassify, TaxPayModel, TaxReturnLSTM, FCModel
+from model import EmbeddingClassify, TaxPayModel, TaxReturnLSTM
+from model import MixFCModel as FCModel
 import torch.nn as nn
 import torch.nn.functional as F
 
 test = False
-train_f = "../data_jk/eval_data.pkl"
-eval_f = "../data_jk/train_data.pkl"
-test_f = "../data_jk/test.pkl"
+train_f = "../data_jk/train_dataR099_fill0.pkl"
+eval_f = "../data_jk/train_dataR099_fill0.pkl"
+test_f = "../data_jk/test_fill0.pkl"
 
 lr=0.001
-EPOCH = 50
+EPOCH = 20
 batch_size = 32
 seq_len = 16
 model1 = EmbeddingClassify()
@@ -31,9 +31,14 @@ optimizer3 = torch.optim.Adam(model3.parameters(), lr=lr, weight_decay=0.99)
 
 
 def model_train():
-    train_data = pickle.load(open(train_f, 'rb'))
-    eval_data = pickle.load(open(eval_f, 'rb'))
-    test_data = pickle.load(open(test_f, 'rb'))
+    with open(train_f, 'rb') as f1:
+        train_data = pickle.load(f1)
+    with open(eval_f, 'rb') as f2:
+        eval_data = pickle.load(f2)
+    with open(test_f, 'rb') as f3:
+        test_data = pickle.load(f3)
+    # eval_data = pickle.load(open(eval_f, 'rb'))
+    # test_data = pickle.load(open(test_f, 'rb'))
     i=0
     for e in range(EPOCH):
         model1.train()
@@ -113,9 +118,52 @@ def model_train():
             df.to_csv('test_res_ep%d.csv'%e)
 
 
+def model_load(ckpt, model):
+    model.load_state_dict(torch.load(ckpt))
+    return model
+
+def FCtest(model, ckpt):
+    record_acc = ckpt.split('.')[-2].split('_')[-1]
+    test_loader = DataLoader(SVMDataSet(test_f), batch_size=1, shuffle=False)
+    model = model_load(ckpt, model).cuda()
+    model.eval()
+    test_res = []
+    for batch, label, id in test_loader:
+        data = torch.FloatTensor(batch).cuda()
+        pred = model(data)
+        pred_p = F.softmax(pred, dim=-1)[0, 1].detach().cpu().numpy()
+        print(id[0], pred_p)
+        test_res.append({'SHXYDM': id[0], 'predict_prob': pred_p})
+    df = pd.DataFrame(test_res)
+    df.to_csv('test_res_fc%s.csv'%record_acc)
+
+
+def fc_eval(model, e, ckpt=None):
+    eval_loader = DataLoader(SVMDataSet(eval_f), batch_size=batch_size, shuffle=True)
+    if ckpt is not None:
+        # model = model_load(ckpt, model).cuda()
+        model.load(ckpt)
+    eval_acc = 0.0
+    eval_num = 0
+    pred_p_list = []
+    gt_list = []
+    model.eval()
+    for batch, label, _ in eval_loader:
+        data = torch.FloatTensor(batch).cuda()
+        label = torch.LongTensor(label).cuda()
+        pred = model(data)
+        pred_p = F.softmax(pred, dim=-1)[:, 1]
+        label = label.detach().cpu().numpy()
+        gt_list.extend(list(label))
+        pred_p_list.extend(list(pred_p.detach().cpu().numpy()))
+        eval_acc += np.sum(torch.argmax(pred, dim=-1).detach().cpu().numpy() == label)
+        eval_num += pred.shape[0]
+    print("epoch %d, eval acc: %.3f" % (e, eval_acc / eval_num))
+    test_auc = draw_roc("./vis/fc_model_eval%d.jpg" % e, gt_list, pred_p_list, title="eval")
+    return test_auc
+
 def fc_model_train():
     train_loader = DataLoader(SVMDataSet(train_f), batch_size=batch_size, shuffle=True)
-    eval_loader = DataLoader(SVMDataSet(eval_f), batch_size=batch_size, shuffle=True)
 
     model = FCModel().cuda()
     criterion = nn.CrossEntropyLoss().cuda()
@@ -126,7 +174,8 @@ def fc_model_train():
         train_num = 0
         pred_p_list = []
         gt_list = []
-        for batch, label in train_loader:
+        model.train()
+        for batch, label, _ in train_loader:
             data = torch.FloatTensor(batch).cuda()
             label = torch.LongTensor(label).cuda()
             pred = model(data)
@@ -141,28 +190,21 @@ def fc_model_train():
             train_acc += np.sum(torch.argmax(pred, dim=-1).detach().cpu().numpy() == label)
             train_num += pred.shape[0]
         print("epoch %d, train acc:%.3f"%(e, train_acc/train_num))
-        draw_roc("./vis/fc_model_train%d.jpg"%e, gt_list, pred_p_list, title="train")
-        eval_acc = 0.0
-        eval_num = 0
-        pred_p_list = []
-        gt_list = []
-        for batch, label in eval_loader:
-            data = torch.FloatTensor(batch).cuda()
-            label = torch.LongTensor(label).cuda()
-            pred = model(data)
-            pred_p = F.softmax(pred, dim=-1)[:, 1]
-            label = label.detach().cpu().numpy()
-            gt_list.extend(list(label))
-            pred_p_list.extend(list(pred_p.detach().cpu().numpy()))
-            eval_acc += np.sum(torch.argmax(pred, dim=-1).detach().cpu().numpy() == label)
-            eval_num += pred.shape[0]
-        print("epoch %d, eval acc: %.3f"%(e, eval_acc/eval_num))
-        auc = draw_roc("./vis/fc_model_eval%d.jpg"%e, gt_list, pred_p_list, title="eval")
-        if auc > best_auc:
+        train_auc = draw_roc("./vis/fc_model_train%d.jpg"%e, gt_list, pred_p_list, title="train")
+        test_auc = fc_eval(model, e)
+        if min(train_auc, test_auc) > best_auc:
             torch.save(model.state_dict(), "./ckpt/fc_model_best.pth")
             print("saving best fc model")
-            best_auc = auc
+            best_auc = min(train_auc, test_auc)
     print("the best auc = %.3f"%best_auc)
 
+
 if __name__ == '__main__':
-    fc_model_train()
+    # fc_model_train()
+    # F:\yanjiusheng\2022春\赛道三附件\-\ckpt\按照roc最高算的不正确
+    model = FCModel().cuda()
+    ckpt = [
+        "./ckpt/fc_model1_668_fill0.pth",
+        "./ckpt/fc_model_682_fill0.pth"]
+    # # FCtest(model, ckpt)
+    fc_eval(model, 0, ckpt)
