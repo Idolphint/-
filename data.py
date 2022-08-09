@@ -34,8 +34,10 @@ base_info.fillna({'code_enterprise_ratal_classes': '0', 'HYML_DM': 'A'}, inplace
 class Company(object):
     def __init__(self, data):
         id, open_date, ratal_class, code_regi, hy_dm, hyzl_dm, hydl_dm, hyml_dm = data
+        if hyml_dm == 'xx':
+            hyml_dm = 'A'
         open_day = open_date.split(' ')[0]
-        open_day = open_day.split('-')
+        open_day = open_day.split('/')
         open_date = [int(open_day[0]), int(open_day[1]), int(open_day[2])]
         hy_dm = str(hy_dm)
         # print(ratal_class)
@@ -94,6 +96,7 @@ class Company(object):
 
     def add_investor_info(self, data):
         id, investor_id, invest_class, invest_rate, invest_amount = data
+        self.investor_info.append([investor_id, invest_class, invest_rate, invest_amount])
         self.sum_inv += invest_amount
 
     def add_label(self, data):
@@ -119,6 +122,9 @@ class Company(object):
     def get_train_data(self):
         out = list(self.get_tax_data().reshape(-1))
         out.extend([self.sum_inv, self.sum_sales, self.sum_ratal])
+        invstor_n = len(self.investor_info)
+        inv_mean = self.sum_inv / max(len(self.investor_info), 1)
+        out.extend([inv_mean, invstor_n])
         # out = out.append(self.sum_sales)
         # out = out.append(self.sum_ratal)
 
@@ -231,7 +237,7 @@ class Company1(object):
         id, tax_return_date, return_ddl, code_account, code_item, tax_begin, tax_end, sales = data
         return_day = tax_return_date.split("-")
         ddl = return_ddl.split("-")
-        tax_begin_day = tax_begin.split('-')
+        tax_begin_day = tax_begin.split("-")
         tax_return_date = [int(i) for i in return_day]
         return_ddl = [int(i) for i in ddl]
         tax_begin = [int(i) for i in tax_begin_day]
@@ -291,14 +297,14 @@ class ComDataset(Dataset):
         return len(self.data)
 
 
-def init_dataset(mode="train", eval_rate=0.7):
-    from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-    for mode in ["train", "test"]:
+def init_dataset(mode="train_", eval_rate=0.7):
+        from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+        # for mode in ["train", "test"]:
         dataset = {}
-        base_info = pd.read_csv("../data_jk/%s_basic_info.csv" % mode, encoding='utf-8')
-        tax_return = pd.read_csv("../data_jk/%s_tax_return_.csv" % mode, encoding='utf-8')
-        tax_payment = pd.read_csv("../data_jk/%s_tax_payment_.csv" % mode, encoding='utf-8')
-        tax_invest = pd.read_csv("../data_jk/%s_investor_info.csv" % mode, encoding='utf-8')
+        base_info = pd.read_csv("../data_final/%sbasic_info.csv" % mode, encoding='utf-8')
+        tax_return = pd.read_csv("../data_final/%stax_return.csv" % mode, encoding='utf-8')
+        tax_payment = pd.read_csv("../data_final/%stax_payment.csv" % mode, encoding='utf-8')
+        tax_invest = pd.read_csv("../data_final/%sinvestor_info.csv" % mode, encoding='utf-8')
         base_info.fillna({'code_enterprise_ratal_classes': '0', 'HYML_DM': 'A'}, inplace=True)
         # tax_return['sales'] += 0.01
         # tax_payment['ratal'] += 0.01
@@ -320,22 +326,29 @@ def init_dataset(mode="train", eval_rate=0.7):
             comp = dataset[id]
             comp.add_investor_info(row)
             dataset[id] = comp
-        if mode == 'train':
-            label = pd.read_csv("../data_jk/%s_label.csv" % mode, encoding='utf-8')
-            for index, row in label.iterrows():
-                id = row['SHXYDM']
-                comp = dataset[id]
-                comp.add_label(row)
-                dataset[id] = comp
-            eval_dataset = random.sample(list(dataset.keys()), int(len(dataset.keys()) * eval_rate))
-            eval_out = {ev: dataset[ev] for ev in eval_dataset}
-            [dataset.pop(ev) for ev in eval_dataset]
-            pickle.dump(dataset, open("../data_jk/train_dataR_yty.pkl", 'wb'))
-            pickle.dump(eval_out, open("../data_jk/eval_dataR_yty.pkl", 'wb'))
-        else:
-            pickle.dump(dataset, open("../data_jk/%s_yty.pkl" % mode, 'wb'))
 
-    return dataset
+        label = pd.read_csv("../data_final/%slabel.csv" % mode, encoding='utf-8')
+        for index, row in label.iterrows():
+            id = row['SHXYDM']
+            comp = dataset[id]
+            comp.add_label(row)
+            dataset[id] = comp
+        # if mode == 'train_':
+        #     label = pd.read_csv("../data_jk/%slabel.csv" % mode, encoding='utf-8')
+        #     for index, row in label.iterrows():
+        #         id = row['SHXYDM']
+        #         comp = dataset[id]
+        #         comp.add_label(row)
+        #         dataset[id] = comp
+        #     eval_dataset = random.sample(list(dataset.keys()), int(len(dataset.keys()) * eval_rate))
+        #     eval_out = {ev: dataset[ev] for ev in eval_dataset}
+        #     [dataset.pop(ev) for ev in eval_dataset]
+        #     pickle.dump(dataset, open("../data_jk/train_dataR_yty.pkl", 'wb'))
+        #     pickle.dump(eval_out, open("../data_jk/eval_dataR_yty.pkl", 'wb'))
+        # else:
+        pickle.dump(dataset, open("../data_final/all_data.pkl", 'wb'))
+
+        return dataset
 
 
 def svm_data_pre(tax_re, tax_pay):
@@ -440,6 +453,6 @@ def see_data_feature():
 
 
 if __name__ == '__main__':
-    init_dataset(mode='train', eval_rate=0.3)
+    init_dataset(mode='', eval_rate=0.3)
     # see_data_feature()
     # print("hello")

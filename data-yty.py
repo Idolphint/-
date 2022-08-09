@@ -6,20 +6,11 @@ import matplotlib.pyplot as plt
 from lightgbm import LGBMClassifier
 import pandas as pd
 import sklearn.ensemble as se
-from sklearn import tree
-from sklearn.naive_bayes import GaussianNB, MultinomialNB
-from sklearn.neighbors import NearestNeighbors
-from sklearn.ensemble import AdaBoostClassifier
-from sklearn.neighbors import KDTree,BallTree
-import lightgbm as lgb
-from sklearn import svm
-from imblearn.over_sampling import SMOTE
-from imblearn.combine import SMOTETomek
 from imblearn.over_sampling import RandomOverSampler
 
 train_f = "../data_jk/train_dataR_yty099.pkl"
 eval_f = "../data_jk/eval_dataR_yty025.pkl"
-test_f = "../data_jk/test_yty.pkl"
+test_f = "../data_final/all_data.pkl"
 train_data = SVMDataSet(train_f)
 test_data = SVMDataSet(test_f)
 eval_data = SVMDataSet(eval_f)
@@ -137,4 +128,9 @@ predp1 = clf.predict_proba( svm_test_x )[:,1]
 predp2 = clf_lgb.predict_proba(svm_test_x)[:,1]
 dataframe = pd.DataFrame({'SHXYDM': test_id, 'predict_prob': predp2+predp1})
 dataframe.to_csv("rf_linshi.csv", index=False, sep=',')
+
+df_o = pd.read_csv('../data_final/all_data.csv')
+df_o.insert(df_o.shape[1], 'rf_pred', predp1)
+df_o.insert(df_o.shape[1], 'lgb_pred', predp2)
+df_o.to_csv('../data_final/all_data2.csv')
 
